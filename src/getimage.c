@@ -1,6 +1,6 @@
 #include "getimage.h"
 
-int initcamera(unsigned char *device , unsigned char *mptr[4], unsigned int size[4], __u32 format, unsigned int width, unsigned int height){
+int initcamera(const char *device , unsigned char *mptr[4], unsigned int size[4], __u32 format, unsigned int width, unsigned int height){
   //1.打开设备
     int fd = open(device, O_RDWR);
     if(fd < 0){

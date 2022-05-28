@@ -4,11 +4,11 @@
 
 int main(void){
   int fd;
-  unsigned char device[] = "/dev/video0";
+  const char device[] = "/dev/video0";
   unsigned char *p[4];
   unsigned int size[4];
-  unsigned width = 640;
-  unsigned height = 480;
+  unsigned width = 512;
+  unsigned height = 512;
   unsigned quality = 100;
   __u32 format = V4L2_PIX_FMT_YUYV;
   struct v4l2_buffer readbuffer;

@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <assert.h>
 #include <sys/time.h>
-#include <arm_neon.h>
 
 
 int encode(unsigned char* ycbcr, unsigned int width, unsigned int height, unsigned int quality);
