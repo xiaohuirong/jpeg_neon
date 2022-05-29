@@ -1,8 +1,9 @@
-#include "jpeg_encoder_neon.h"
+//#include "jpeg_encoder_neon.h"
 #include "getimage.h"
-
+#include "jpeg_encoder.h"
 
 int main(void){
+  
   int fd;
   const char device[] = "/dev/video0";
   unsigned char *p[4];
@@ -18,7 +19,6 @@ int main(void){
   encode(p[0], width, height, quality);
   getfinish(fd, &readbuffer);
   close(fd);
-
   return 0;
 }
 
