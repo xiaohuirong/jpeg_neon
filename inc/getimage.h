@@ -12,7 +12,7 @@
 #include <string.h> //memset需要
 #include <sys/mman.h> //映射相关
 
-int initcamera(unsigned char* device, unsigned char *mptr[4], unsigned int size[4], __u32 format, unsigned int width, unsigned int height);
+int initcamera(const char* device, unsigned char *mptr[4], unsigned int size[4], __u32 format, unsigned int width, unsigned int height);
 int getimage(int fd, struct v4l2_buffer* readbuffer);
 int getfinish(int fd, struct v4l2_buffer* readbuffer);
 

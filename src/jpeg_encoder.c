@@ -10,8 +10,8 @@
  */
 
 
-#include "jpeg_encoder_neon.h"
-
+#include "jpeg_encoder.h"
+extern int image_enhanced(jpeg_data* data);
 // ====================================================================================================================
 
 #define MAX(a,b)  (((a)>(b))?(a):(b))
@@ -19,10 +19,6 @@
 #define CLIP(n, min, max) MIN((MAX((n),(min))), (max))
 
 #define M_SQRT1_2 0.707106781186547524401
-
-// ====================================================================================================================
-
-
 
 // ====================================================================================================================
 
@@ -187,107 +183,52 @@ void subsample_chroma(jpeg_data* data)
  * the discrete cosine transform per 8x8 block - outputs floating point values
  * optimized by using lookup tables and splitting the terms
  */
+float cos_lookup[8][8] = {{1.0000, 0.9808, 0.9239, 0.8315, 0.7071, 0.5556, 0.3827, 0.1951}, 
+  {1.0000, 0.8315, 0.3827, -0.1951, -0.7071, -0.9808, -0.9239, -0.5556}, 
+  {1.0000, 0.5556, -0.3827, -0.9808, -0.7071, 0.1951, 0.9239, 0.8315}, 
+  {1.0000, 0.1951, -0.9239, -0.5556, 0.7071, 0.8315, -0.3827, -0.9808}, 
+  {1.0000, -0.1951, -0.9239, 0.5556, 0.7071, -0.8315, -0.3827, 0.9808}, 
+  {1.0000, -0.5556, -0.3827, 0.9808, -0.7071, -0.1951, 0.9239, -0.8315}, 
+  {1.0000, -0.8315, 0.3827, 0.1951, -0.7071, 0.9808, -0.9239, 0.5556}, 
+  {1.0000, -0.9808, 0.9239, -0.8315, 0.7071, -0.5556, 0.3827, -0.1951}};
+
+/*
+ * the discrete cosine transform per 8x8 block - outputs floating point values
+ * optimized by using lookup tables and splitting the terms
+ */
 
 void dct_block(int gap, int in[], double out[])
 {
+	int x_f, y_f; // frequency domain coordinates
+	int x_t, y_t; // time domain coordinates
 
-  float32x4_t C10 = {1.0000, 0.9808, 0.9239, 0.8315};
-  float32x4_t C11 = {1.0000, 0.8315, 0.3827, -0.1951};
-  float32x4_t C12 = {1.0000, 0.5556, -0.3827, -0.9808};
-  float32x4_t C13 = {1.0000, 0.1951, -0.9239, -0.5556};
-  float32x4_t C14 = {1.0000, -0.1951, -0.9239, 0.5556};
-  float32x4_t C15 = {1.0000, -0.5556, -0.3827, 0.9808};
-  float32x4_t C16 = {1.0000, -0.8315, 0.3827, 0.1951};
-  float32x4_t C17 = {1.0000, -0.9808, 0.9239, -0.8315};
+	float inner_lookup[8][8];
+	for (x_t=0; x_t<8; x_t++)
+		for (y_f=0; y_f<8; y_f++)
+		{
+			inner_lookup[x_t][y_f] = 0;
+			for (y_t=0; y_t<8; y_t++)
+				inner_lookup[x_t][y_f] += ( in[y_t*gap+x_t] - 128 ) * cos_lookup[y_t][y_f];
 
-  float32x4_t C20 = {0.7071, 0.5556, 0.3827, 0.1951};
-  float32x4_t C21 = {-0.7071, -0.9808, -0.9239, -0.5556};
-  float32x4_t C22 = {-0.7071, 0.1951, 0.9239, 0.8315}; 
-  float32x4_t C23 = {0.7071, 0.8315, -0.3827, -0.9808}; 
-  float32x4_t C24 = {0.7071, -0.8315, -0.3827, 0.9808}; 
-  float32x4_t C25 = {-0.7071, -0.1951, 0.9239, -0.8315}; 
-  float32x4_t C26 = {-0.7071, 0.9808, -0.9239, 0.5556}; 
-  float32x4_t C27 = {0.7071, -0.5556, 0.3827, -0.1951};
+		}
 
-  int i, j;
-  float tmp[8][8];
-  float v1[4];
-  float v2[4];
-  
-  for(i=0;i<8;i++){
-    float32x4_t X1 = {(float)in[i*gap+0] - 128 , (float)in[i*gap+1] - 128, (float)in[i*gap+2] - 128, (float)in[i*gap + 3] - 128};
-    float32x4_t X2 = {(float)in[i*gap+4] - 128 , (float)in[i*gap+5] - 128, (float)in[i*gap+6] - 128, (float)in[i*gap + 7] - 128};
-    float32x4_t R1 = vmovq_n_f32(0);
-    float32x4_t R2 = vmovq_n_f32(0);
+	// freq(x_f,y_f) = ...
+	float freq;
+	for (y_f=0; y_f<8; y_f++)
+		for (x_f=0; x_f<8; x_f++)
+		{
+			freq = 0;
+			for(x_t=0; x_t<8; x_t++)
+				freq += inner_lookup[x_t][y_f] * cos_lookup[x_t][x_f];
 
-    R1 = vfmaq_laneq_f32(R1, C10, X1, 0);
-    R1 = vfmaq_laneq_f32(R1, C11, X1, 1);
-    R1 = vfmaq_laneq_f32(R1, C12, X1, 2);
-    R1 = vfmaq_laneq_f32(R1, C13, X1, 3);
+			if (x_f == 0)
+				freq *= M_SQRT1_2;
+			if (y_f == 0)
+				freq *= M_SQRT1_2;
+			freq /= 4;
 
-    R1 = vfmaq_laneq_f32(R1, C14, X2, 0);
-    R1 = vfmaq_laneq_f32(R1, C15, X2, 1);
-    R1 = vfmaq_laneq_f32(R1, C16, X2, 2);
-    R1 = vfmaq_laneq_f32(R1, C17, X2, 3);
-
-    R2 = vfmaq_laneq_f32(R2, C20, X1, 0);
-    R2 = vfmaq_laneq_f32(R2, C21, X1, 1);
-    R2 = vfmaq_laneq_f32(R2, C22, X1, 2);
-    R2 = vfmaq_laneq_f32(R2, C23, X1, 3);
-
-    R2 = vfmaq_laneq_f32(R2, C24, X2, 0);
-    R2 = vfmaq_laneq_f32(R2, C25, X2, 1);
-    R2 = vfmaq_laneq_f32(R2, C26, X2, 2);
-    R2 = vfmaq_laneq_f32(R2, C27, X2, 3);
-
-    vst1q_f32(v1, R1);
-    vst1q_f32(v2, R2);
-    for(j=0;j<4;j++){
-      tmp[i][j] = v1[j];
-      tmp[i][j+4] = v2[j];
-    }
-  }
-
-  for(j=0;j<8;j++){
-    float32x4_t X1 = (float32x4_t){tmp[0][j] , tmp[1][j] , tmp[2][j], tmp[3][j]};
-    float32x4_t X2 = (float32x4_t){tmp[4][j] , tmp[5][j] , tmp[6][j], tmp[7][j]};
-    float32x4_t R1 = vmovq_n_f32(0);
-    float32x4_t R2 = vmovq_n_f32(0);
-
-    R1 = vfmaq_laneq_f32(R1, C10, X1, 0);
-    R1 = vfmaq_laneq_f32(R1, C11, X1, 1);
-    R1 = vfmaq_laneq_f32(R1, C12, X1, 2);
-    R1 = vfmaq_laneq_f32(R1, C13, X1, 3);
-
-    R1 = vfmaq_laneq_f32(R1, C14, X2, 0);
-    R1 = vfmaq_laneq_f32(R1, C15, X2, 1);
-    R1 = vfmaq_laneq_f32(R1, C16, X2, 2);
-    R1 = vfmaq_laneq_f32(R1, C17, X2, 3);
-
-    R2 = vfmaq_laneq_f32(R2, C20, X1, 0);
-    R2 = vfmaq_laneq_f32(R2, C21, X1, 1);
-    R2 = vfmaq_laneq_f32(R2, C22, X1, 2);
-    R2 = vfmaq_laneq_f32(R2, C23, X1, 3);
-
-    R2 = vfmaq_laneq_f32(R2, C24, X2, 0);
-    R2 = vfmaq_laneq_f32(R2, C25, X2, 1);
-    R2 = vfmaq_laneq_f32(R2, C26, X2, 2);
-    R2 = vfmaq_laneq_f32(R2, C27, X2, 3);
-
-    vst1q_f32(v1, R1);
-    vst1q_f32(v2, R2);
-    for(i=0;i<4;i++){
-      out[i*8 + j] = v1[i]/4;
-      out[(i+4)*8 + j] = v2[i]/4;
-    }
-  }
-
-				//freq *= M_SQRT1_2;
-  for(i=0;i<8;i++){
-    out[i] *= M_SQRT1_2 ;
-    out[i*8] *= M_SQRT1_2;
-  }
-
+			out[y_f*8+x_f] = freq;
+		}
 }
 
 
@@ -936,7 +877,10 @@ int encode(unsigned char* ycbcr, unsigned int width, unsigned int height, unsign
   fflush(stdout);
   read_yuyv(&data, ycbcr, width, height); 
 	printf("%10.3f ms\n", timer());
-
+	/*****************对ycbcr进行增强****************/
+	image_enhanced(&data);
+	rgb_to_ycbcr(&data);
+	/*************************************************/
 	timer();
 	printf("Subsampling chroma values                ");
 	fflush(stdout);

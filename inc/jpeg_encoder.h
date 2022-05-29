@@ -5,8 +5,6 @@
 #include <stdio.h>
 #include <assert.h>
 #include <sys/time.h>
-#include <arm_neon.h>
-
 // ====================================================================================================================
 
 /*
@@ -61,7 +59,8 @@ typedef struct __jpeg_data
 	huff_code chroma_ac;
 
 } jpeg_data;
-int encode(unsigned char* ycbcr, unsigned int width, unsigned int height, unsigned int quality);
 
+int encode(unsigned char* ycbcr, unsigned int width, unsigned int height, unsigned int quality);
+int rgb_to_ycbcr(jpeg_data* data);
 
 #endif 

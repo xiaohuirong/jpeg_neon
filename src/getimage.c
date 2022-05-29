@@ -1,6 +1,5 @@
 #include "getimage.h"
-
-int initcamera(unsigned char *device , unsigned char *mptr[4], unsigned int size[4], __u32 format, unsigned int width, unsigned int height){
+int initcamera(const char *device , unsigned char *mptr[4], unsigned int size[4], __u32 format, unsigned int width, unsigned int height){
   //1.打开设备
     int fd = open(device, O_RDWR);
     if(fd < 0){
@@ -110,7 +109,8 @@ int getimage(int fd, struct v4l2_buffer* readbuffer){
     }
     //从队列中提取一帧数据
     (*readbuffer).type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    ret = ioctl(fd, VIDIOC_DQBUF, readbuffer);
+    ret = ioctl(fd, VIDIOC_DQBUF, readbuffer); //取出缓存帧
+    //图像增强处理
     if(ret < 0){
       perror("读取数据失败\n");
     }
