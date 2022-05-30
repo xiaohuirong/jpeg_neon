@@ -235,6 +235,39 @@ void dct_block(int gap, int in[], double out[])
 /*
  * perform the discrete cosine transform
  */
+void* dct_mutiphread(void* args)
+{
+	dct_muti* dct = (dct_muti*) args;
+	int h,v,blocks_vert,blocks_horiz;
+	if(dct->name == "y")
+	{
+		blocks_vert = (dct->data->height)/8; 
+		blocks_horiz = (dct->data->width)/8;
+		for (v=0; v<blocks_vert; v++)
+		for (h=0; h<blocks_horiz; h++)
+			dct_block(8*blocks_horiz, dct->data->y + v*blocks_horiz*64 + h*8, dct->data->dct_y + (v*blocks_horiz+h)*64);
+
+	}
+	else if(dct->name == "cb")
+	{
+		blocks_vert = (dct->data->height)/16; 
+		blocks_horiz = (dct->data->width)/16;
+		for (v=0; v<blocks_vert; v++)
+		for (h=0; h<blocks_horiz; h++)
+			dct_block(8*blocks_horiz, dct->data->cb + v*blocks_horiz*64 + h*8, dct->data->dct_cb + (v*blocks_horiz+h)*64);
+
+	}
+	else if(dct->name == "cr")
+	{
+		blocks_vert = (dct->data->height)/16; 
+		blocks_horiz = (dct->data->width)/16;
+		for (v=0; v<blocks_vert; v++)
+		for (h=0; h<blocks_horiz; h++)
+			dct_block(8*blocks_horiz, dct->data->cr + v*blocks_horiz*64 + h*8, dct->data->dct_cr + (v*blocks_horiz+h)*64);
+
+	}
+
+}
 void dct(int blocks_horiz, int blocks_vert, int in[], double out[])
 {
 	int h,v;
@@ -891,9 +924,33 @@ int encode(unsigned char* ycbcr, unsigned int width, unsigned int height, unsign
 	timer();
 	printf("Performing the discrete cosine transform ");
 	fflush(stdout);
+	/*****************多线程计算********************/
+	
+	pthread_t th1,th2,th3;
+	dct_muti muti_y,muti_cb,muti_cr;
+	//参数初始化
+	muti_y.data = &data;
+	muti_y.name = "y";
+	muti_cb.data = &data;
+	muti_cb.name = "cb";
+	muti_cr.data = &data;
+	muti_cr.name = "cr";
+	//线程创建
+	pthread_create(&th1, NULL,dct_mutiphread, &muti_y);
+	pthread_create(&th2, NULL,dct_mutiphread, &muti_cb);
+	pthread_create(&th3, NULL,dct_mutiphread, &muti_cr);
+	//等待线程结束 
+	pthread_join(th1, NULL);
+	pthread_join(th2, NULL);
+	pthread_join(th3, NULL);
+	/***********************************************/
+	/*****************原处理进程********************/
+	/*
 	dct(data.width/8, data.height/8, data.y, data.dct_y);
 	dct(data.width/16, data.height/16, data.cb_sub, data.dct_cb);
 	dct(data.width/16, data.height/16, data.cr_sub, data.dct_cr);
+	*/
+	/***********************************************/
 	printf("%10.3f ms\n", timer());
 
 

@@ -27,7 +27,7 @@ TARGET = $(BIN_DIR)/gcode
 all: $(TARGET)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@ 
 
 # cpp文件编译
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
@@ -37,7 +37,7 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 # 如果在编译cpp的时候链接会导致最终找不到cv库
 $(TARGET) : $(OBJ_FILES_C)
 # $(C++) $(LDFLAGS) $(OBJ_FILES) -o $@ `pkg-config opencv --libs`  #若包含opencv库需要链接
-	$(C++) $(LDFLAGS) $(OBJ_FILES_C) -o $@
+	$(C++) $(LDFLAGS) $(OBJ_FILES_C)-o $@ -lpthread
 	
 	@echo "> build success <"	
 
