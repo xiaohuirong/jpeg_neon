@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <sys/time.h>
+#include <pthread.h>
 // ====================================================================================================================
 
 /*
@@ -59,6 +60,11 @@ typedef struct __jpeg_data
 	huff_code chroma_ac;
 
 } jpeg_data;
+typedef struct 
+{
+	jpeg_data* data;
+	char* name;
+}dct_muti;
 
 int encode(unsigned char* ycbcr, unsigned int width, unsigned int height, unsigned int quality);
 int rgb_to_ycbcr(jpeg_data* data);

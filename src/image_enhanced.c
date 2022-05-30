@@ -1,4 +1,3 @@
-// --------------test.cpp
 #include "image_enhanced.h"
 
 //图像的三个颜色通道
@@ -19,9 +18,9 @@ int  YCbCr2RGB(jpeg_data* data)
 		data->red[i] =  1.164*(data->y[i] -16) + 1.596 * (data->cr[i]-128);
 		data->green[i] = 1.164*(data->y[i]-16) - 0.813*(data->cr[i]-128) - 0.392*(data->cb[i]-128);
 		data->blue[i] =1.164 *(data->y[i]-16) + 2.017 *(data->cb[i]-128) ;
-		assert( 0<=data->red[i] && data->red[i]<=255);
-		assert( 0<=data->green[i] && data->green[i]<=255 );
-		assert( 0<=data->blue[i] && data->blue[i]<=255 );
+		//assert( 0<=data->red[i] && data->red[i]<=255);
+		//assert( 0<=data->green[i] && data->green[i]<=255 );
+		//assert( 0<=data->blue[i] && data->blue[i]<=255 );
 	}
 }
 int image_enhanced(jpeg_data* data)
