@@ -83,9 +83,9 @@ int rgb_to_ycbcr(jpeg_data* data)
 		data->y[i]  =       0.299    * data->red[i] + 0.587    * data->green[i] + 0.114    * data->blue[i];
 		data->cb[i] = 128 - 0.168736 * data->red[i] - 0.331264 * data->green[i] + 0.5      * data->blue[i];
 		data->cr[i] = 128 + 0.5      * data->red[i] - 0.418688 * data->green[i] - 0.081312 * data->blue[i];
-		assert( 0<=data->y[i] && data->y[i]<=255);
-		assert( 0<=data->cb[i] && data->cb[i]<=255 );
-		assert( 0<=data->cr[i] && data->cr[i]<=255 );
+		//assert( 0<=data->y[i] && data->y[i]<=255);
+		//assert( 0<=data->cb[i] && data->cb[i]<=255 );
+		//assert( 0<=data->cr[i] && data->cr[i]<=255 );
 	}
 	
 	return 0;
@@ -911,8 +911,10 @@ int encode(unsigned char* ycbcr, unsigned int width, unsigned int height, unsign
   read_yuyv(&data, ycbcr, width, height); 
 	printf("%10.3f ms\n", timer());
 	/*****************对ycbcr进行增强****************/
+	
 	image_enhanced(&data);
 	rgb_to_ycbcr(&data);
+	
 	/*************************************************/
 	timer();
 	printf("Subsampling chroma values                ");
@@ -924,6 +926,7 @@ int encode(unsigned char* ycbcr, unsigned int width, unsigned int height, unsign
 	timer();
 	printf("Performing the discrete cosine transform ");
 	fflush(stdout);
+	
 	/*****************多线程计算********************/
 	
 	pthread_t th1,th2,th3;
@@ -943,6 +946,7 @@ int encode(unsigned char* ycbcr, unsigned int width, unsigned int height, unsign
 	pthread_join(th1, NULL);
 	pthread_join(th2, NULL);
 	pthread_join(th3, NULL);
+	
 	/***********************************************/
 	/*****************原处理进程********************/
 	/*

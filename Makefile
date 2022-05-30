@@ -4,8 +4,8 @@ INC_DIR = inc
 OBJ_DIR = obj
 
 CC = gcc
-C++ = g++
-LD = g++
+C++ = gcc
+LD = gcc
 INC = -I$(INC_DIR)
 
 CFLAGS += $(INC)
