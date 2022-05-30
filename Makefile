@@ -16,9 +16,12 @@ LDFLAGS = -lm
 # 并将主函数中的//#include "jpeg_encoder_neon.h" 替换为jpeg_encoder.o
 # C文件
 OBJ_FILES_C = $(OBJ_DIR)/main.o \
+			  $(OBJ_DIR)/jpeg_decoder.o \
+			  $(OBJ_DIR)/show.o \
 			$(OBJ_DIR)/getimage.o \
 			$(OBJ_DIR)/jpeg_encoder.o \
-			$(OBJ_DIR)/image_enhanced.o 
+			$(OBJ_DIR)/image_enhanced.o \
+		    $(OBJ_DIR)/huff.o  
 # 所有文件
 OBJ_FILES = $(OBJ_FILES_C)
 #总链接生成文件
