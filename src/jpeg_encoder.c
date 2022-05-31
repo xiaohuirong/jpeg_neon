@@ -62,6 +62,11 @@ int rgb_to_ycbcr(jpeg_data *data) {
     // assert( 0<=data->y[i] && data->y[i]<=255);
     // assert( 0<=data->cb[i] && data->cb[i]<=255 );
     // assert( 0<=data->cr[i] && data->cr[i]<=255 );
+    data->rgb[i] = CLIP(data->red[i], 0, 255);
+    data->rgb[i] <<= 8;
+    data->rgb[i] |= CLIP(data->green[i], 0, 255);
+    data->rgb[i] <<= 8;
+    data->rgb[i] |= CLIP(data->blue[i], 0, 255);
   }
 
   return 0;
@@ -72,7 +77,7 @@ int read_yuyv(jpeg_data *data, unsigned char *yuyv, unsigned int width,
   data->width = width;
   data->height = height;
   data->num_pixel = width * height;
-  alloc_jpeg_data(data);
+  // alloc_jpeg_data(data);
   int i;
   int j;
   int k;
@@ -112,7 +117,7 @@ int read_ycbcr(jpeg_data *data, unsigned char *ycbcr, unsigned int width,
   data->width = width;
   data->height = height;
   data->num_pixel = width * height;
-  alloc_jpeg_data(data);
+  // alloc_jpeg_data(data);
   int i;
   int j;
   for (i = 0; i < width * height; i++) {
@@ -427,6 +432,29 @@ void init_huff_table(huff_code *hc) {
       code <<= 1;
       si++;
     } while (hc->sym_code_len[hc->sym_sorted[k]] != si);
+  }
+
+  int len;
+  for (i = 1; i <= 16; i++) {
+    if (hc->code_len_freq[i] != 0) {
+      len = i;
+      break;
+    }
+  }
+
+  int lcode;
+  for (i = 0; i < 256; i++) {
+    if (hc->sym_code_len[i] == len) {
+      lcode = hc->sym_code[i];
+      break;
+    }
+  }
+
+  for (i = 0; i < 256; i++) {
+    if (hc->sym_code[i] == -1) {
+      hc->sym_code[i] = lcode;
+      hc->sym_code_len[i] = len;
+    }
   }
 }
 
@@ -833,9 +861,8 @@ void write_file(const char *file_name, jpeg_data *data) {
  */
 // int run(int argc, char** args)
 
-int encode(unsigned char *ycbcr, unsigned int width, unsigned int height,
-           unsigned int quality) {
-  jpeg_data data;
+int encode(unsigned char *ycbcr, jpeg_data *data, unsigned int width,
+           unsigned int height, unsigned int quality) {
   set_quality(luma_quantizer2, quality);
   set_quality(chroma_quantizer2, quality);
 
@@ -849,18 +876,18 @@ int encode(unsigned char *ycbcr, unsigned int width, unsigned int height,
   timer();
   printf("ReadYCbCr                                ");
   fflush(stdout);
-  read_yuyv(&data, ycbcr, width, height);
+  read_yuyv(data, ycbcr, width, height);
   printf("%10.3f ms\n", timer());
   /*****************对ycbcr进行增强****************/
 
-  image_enhanced(&data);
-  rgb_to_ycbcr(&data);
+  image_enhanced(data);
+  rgb_to_ycbcr(data);
 
   /*************************************************/
   timer();
   printf("Subsampling chroma values                ");
   fflush(stdout);
-  subsample_chroma(&data);
+  subsample_chroma(data);
   printf("%10.3f ms\n", timer());
 
   timer();
@@ -872,11 +899,11 @@ int encode(unsigned char *ycbcr, unsigned int width, unsigned int height,
   pthread_t th1, th2, th3;
   dct_muti muti_y, muti_cb, muti_cr;
   //参数初始化
-  muti_y.data = &data;
+  muti_y.data = data;
   muti_y.name = "y";
-  muti_cb.data = &data;
+  muti_cb.data = data;
   muti_cb.name = "cb";
-  muti_cr.data = &data;
+  muti_cr.data = data;
   muti_cr.name = "cr";
   //线程创建
   pthread_create(&th1, NULL, dct_mutiphread, &muti_y);
@@ -900,35 +927,35 @@ int encode(unsigned char *ycbcr, unsigned int width, unsigned int height,
   timer();
   printf("Quantizing coefficients                  ");
   fflush(stdout);
-  quantize(data.num_pixel, data.dct_y, data.dct_y_quant, luma_quantizer2);
-  quantize(data.num_pixel / 4, data.dct_cb, data.dct_cb_quant,
+  quantize(data->num_pixel, data->dct_y, data->dct_y_quant, luma_quantizer2);
+  quantize(data->num_pixel / 4, data->dct_cb, data->dct_cb_quant,
            chroma_quantizer2);
-  quantize(data.num_pixel / 4, data.dct_cr, data.dct_cr_quant,
+  quantize(data->num_pixel / 4, data->dct_cr, data->dct_cr_quant,
            chroma_quantizer2);
   printf("%10.3f ms\n", timer());
 
   timer();
   printf("Reordering coefficients (zig-zag)        ");
   fflush(stdout);
-  zigzag(data.num_pixel, data.dct_y_quant);
-  zigzag(data.num_pixel / 4, data.dct_cb_quant);
-  zigzag(data.num_pixel / 4, data.dct_cr_quant);
+  zigzag(data->num_pixel, data->dct_y_quant);
+  zigzag(data->num_pixel / 4, data->dct_cb_quant);
+  zigzag(data->num_pixel / 4, data->dct_cr_quant);
   printf("%10.3f ms\n", timer());
 
   timer();
   printf("Calculating the DC differences           ");
   fflush(stdout);
-  diff_dc(data.num_pixel, data.dct_y_quant);
-  diff_dc(data.num_pixel / 4, data.dct_cb_quant);
-  diff_dc(data.num_pixel / 4, data.dct_cr_quant);
+  diff_dc(data->num_pixel, data->dct_y_quant);
+  diff_dc(data->num_pixel / 4, data->dct_cb_quant);
+  diff_dc(data->num_pixel / 4, data->dct_cr_quant);
   printf("%10.3f ms\n", timer());
 
-  init_huffman(&data);
+  init_huffman(data);
 
   timer();
   printf("Writing the bitstream                    ");
   fflush(stdout);
-  write_file("out.jpg", &data);
+  write_file("out.jpg", data);
   printf("%10.3f ms\n", timer());
 
   return 0;

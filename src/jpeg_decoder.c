@@ -167,8 +167,7 @@ int alloc_jpeg_data(jpeg_data *data) {
   data->red = (int *)malloc(data->num_pixel * sizeof(int));
   data->green = (int *)malloc(data->num_pixel * sizeof(int));
   data->blue = (int *)malloc(data->num_pixel * sizeof(int));
-  data->rgb =
-      (unsigned char *)malloc(data->num_pixel * 3 * sizeof(unsigned char));
+  data->rgb = (unsigned int *)malloc(data->num_pixel * sizeof(unsigned int));
 
   data->y = (int *)malloc(data->num_pixel * sizeof(int));
   data->cb = (int *)malloc(data->num_pixel * sizeof(int));
@@ -287,9 +286,11 @@ void yuyv_to_rgb(jpeg_data *data) {
     data->green[i] = 1.164 * (data->y[i] - 16) - 0.813 * (data->cr[i] - 128) -
                      0.391 * (data->cb[i] - 128);
     data->red[i] = 1.164 * (data->y[i] - 16) + 1.596 * (data->cb[i] - 128);
-    data->rgb[3 * i] = data->red[i];
-    data->rgb[3 * i + 1] = data->green[i];
-    data->rgb[3 * i + 2] = data->blue[i];
+    data->rgb[i] = CLIP(data->red[i], 0, 255);
+    data->rgb[i] <<= 8;
+    data->rgb[i] |= CLIP(data->green[i], 0, 255);
+    data->rgb[i] <<= 8;
+    data->rgb[i] |= CLIP(data->blue[i], 0, 255);
   }
 }
 
@@ -312,7 +313,7 @@ int decode(jpeg_data *jpg) {
   recoverhuff(hc, f);
 
   recoversize(jpg, f);
-  alloc_jpeg_data(jpg);
+  // alloc_jpeg_data(jpg);
 
   fseek(f, 10, SEEK_CUR);
   fseek(f, 10, SEEK_CUR);

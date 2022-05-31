@@ -6,7 +6,7 @@
 int main(void) {
 
   int fd;
-  const char device[] = "/dev/video7";
+  const char device[] = "/dev/video0";
   unsigned char *p[4];
   unsigned int size[4];
   unsigned width = 640;
@@ -14,20 +14,42 @@ int main(void) {
   unsigned quality = 100;
   __u32 format = V4L2_PIX_FMT_YUYV;
   struct v4l2_buffer readbuffer;
+  jpeg_data jpg;
+  jpg.width = width;
+  jpg.height = height;
+  jpg.num_pixel = width * height;
 
+  alloc_jpeg_data(&jpg);
+
+  initlcd();
   fd = initcamera(device, p, size, format, width, height);
-  getimage(fd, &readbuffer);
-  encode(p[0], width, height, quality);
-  getfinish(fd, &readbuffer);
+  int i = 1;
+  while (i) {
+    getimage(fd, &readbuffer);
+    encode(p[0], &jpg, width, height, quality);
+    getfinish(fd, &readbuffer);
+    show(jpg.rgb, width, jpg.height);
+    i--;
+  }
   closecamera(fd);
 
   jpeg_data readjpg;
+  readjpg.width = width;
+  readjpg.height = height;
+  readjpg.num_pixel = width * height;
+
+  alloc_jpeg_data(&readjpg);
+
   decode(&readjpg);
 
-  unsigned int *lcdptr;
-  int lcdfd = initlcd(lcdptr);
-
-  show_rgb_data(readjpg.rgb, lcdptr, 640, 480);
+  show(jpg.rgb, width, jpg.height);
+  // int i;
+  // for (i = 0; i < 512; i++) {
+  // if (i % 8 == 0) {
+  // printf("\n");
+  //}
+  // printf("%#X ", readjpg.rgb[i]);
+  //}
 
   return 0;
 }
