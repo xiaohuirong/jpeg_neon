@@ -67,6 +67,7 @@ int encode(unsigned char *ycbcr, jpeg_data *jpg, unsigned int width,
            unsigned int height, unsigned int quality);
 int rgb_to_ycbcr(jpeg_data *data);
 int alloc_jpeg_data(jpeg_data *data);
+double timer();
 
 // int alloc_jpeg_data(jpeg_data *data);
 

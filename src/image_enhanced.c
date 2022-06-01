@@ -10,14 +10,22 @@
 // x为原始图像像素值，y为新图层的像素值
 #endif
 
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define CLIP(n, min, max) MIN((MAX((n), (min))), (max))
+
 /*函数具体声明*/
 int YCbCr2RGB(jpeg_data *data) {
   int i;
   for (i = 0; i < data->num_pixel; i++) {
-    data->red[i] = 1.164 * (data->y[i] - 16) + 1.596 * (data->cr[i] - 128);
-    data->green[i] = 1.164 * (data->y[i] - 16) - 0.813 * (data->cr[i] - 128) -
-                     0.392 * (data->cb[i] - 128);
-    data->blue[i] = 1.164 * (data->y[i] - 16) + 2.017 * (data->cb[i] - 128);
+    data->red[i] =
+        CLIP(1.164 * (data->y[i] - 16) + 1.596 * (data->cr[i] - 128), 0, 255);
+    data->green[i] =
+        CLIP(1.164 * (data->y[i] - 16) - 0.813 * (data->cr[i] - 128) -
+                 0.392 * (data->cb[i] - 128),
+             0, 255);
+    data->blue[i] =
+        CLIP(1.164 * (data->y[i] - 16) + 2.017 * (data->cb[i] - 128), 0, 255);
     // assert( 0<=data->red[i] && data->red[i]<=255);
     // assert( 0<=data->green[i] && data->green[i]<=255 );
     // assert( 0<=data->blue[i] && data->blue[i]<=255 );
@@ -27,6 +35,7 @@ int image_enhanced(jpeg_data *data) {
   YCbCr2RGB(data);
   int size = data->num_pixel;              //获取原图像的大小
   u_char r = 0, g = 0, b = 0, g_alpha = 0; //定义参数初始值
+/*
   for (int i = 0; i < size; i++)           //
   {
     //将绿色通道反色，与b、g、r通道分别相乘，得到新的图层颜色
@@ -50,7 +59,7 @@ int image_enhanced(jpeg_data *data) {
     data->green[i] = SCREEN_XY(data->green[i], g);
     data->red[i] = SCREEN_XY(data->red[i], r);
   }
+*/
   return 0;
 }
 /******************************/
-

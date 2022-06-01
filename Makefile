@@ -16,10 +16,10 @@ LDFLAGS = -lm
 # 并将主函数中的//#include "jpeg_encoder_neon.h" 替换为jpeg_encoder.o
 # C文件
 OBJ_FILES_C = $(OBJ_DIR)/main.o \
-			  $(OBJ_DIR)/jpeg_decoder.o \
+			  $(OBJ_DIR)/jpeg_decoder_neon.o \
 			  $(OBJ_DIR)/show.o \
 			$(OBJ_DIR)/getimage.o \
-			$(OBJ_DIR)/jpeg_encoder.o \
+			$(OBJ_DIR)/jpeg_encoder_neon.o \
 			$(OBJ_DIR)/image_enhanced.o \
 		    $(OBJ_DIR)/huff.o  
 # 所有文件
@@ -30,17 +30,17 @@ TARGET = $(BIN_DIR)/gcode
 all: $(TARGET)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	$(CC) $(CFLAGS) -c $< -o $@ 
+	$(CC) $(CFLAGS) $(OPT) -c $< -o $@ 
 
 # cpp文件编译
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
-	$(C++) $(CFLAGS) -c $< -o $@ 
+	$(C++) $(CFLAGS) $(OPT) -c $< -o $@ 
 
 # 必须要在最后所有.o文件链接为一个文件的时候链接opencv库 
 # 如果在编译cpp的时候链接会导致最终找不到cv库
 $(TARGET) : $(OBJ_FILES_C)
 # $(C++) $(LDFLAGS) $(OBJ_FILES) -o $@ `pkg-config opencv --libs`  #若包含opencv库需要链接
-	$(C++) $(LDFLAGS) $(OBJ_FILES_C)-o $@ -lpthread
+	$(C++) $(LDFLAGS) $(OBJ_FILES_C) $(OPT) -o $@ -lpthread
 	
 	@echo "> build success <"	
 
