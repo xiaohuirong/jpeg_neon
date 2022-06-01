@@ -11,28 +11,16 @@
 
 #include "jpeg.h"
 #include <arm_neon.h>
-extern int image_enhanced(jpeg_data *data);
+
 // ====================================================================================================================
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define CLIP(n, min, max) MIN((MAX((n), (min))), (max))
 
-float cos_lookup2[8][8] = {
-    {1.0000, 0.9808, 0.9239, 0.8315, 0.7071, 0.5556, 0.3827, 0.1951},
-    {1.0000, 0.8315, 0.3827, -0.1951, -0.7071, -0.9808, -0.9239, -0.5556},
-    {1.0000, 0.5556, -0.3827, -0.9808, -0.7071, 0.1951, 0.9239, 0.8315},
-    {1.0000, 0.1951, -0.9239, -0.5556, 0.7071, 0.8315, -0.3827, -0.9808},
-    {1.0000, -0.1951, -0.9239, 0.5556, 0.7071, -0.8315, -0.3827, 0.9808},
-    {1.0000, -0.5556, -0.3827, 0.9808, -0.7071, -0.1951, 0.9239, -0.8315},
-    {1.0000, -0.8315, 0.3827, 0.1951, -0.7071, 0.9808, -0.9239, 0.5556},
-    {1.0000, -0.9808, 0.9239, -0.8315, 0.7071, -0.5556, 0.3827, -0.1951}};
+// ====================================================================================================================
 
-int scan_order2[] = {0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18,
-                     11, 4,  5,  12, 19, 26, 33, 40, 48, 41, 34, 27, 20,
-                     13, 6,  7,  14, 21, 28, 35, 42, 49, 56, 57, 50, 43,
-                     36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
-                     38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+// ====================================================================================================================
 
 /*
  * stop-watch used for time measurements
@@ -49,6 +37,43 @@ double timer() {
 // ====================================================================================================================
 
 /*
+ * allocates the space needed for the globally used struct jpeg_data
+ */
+int alloc_jpeg_data(jpeg_data *data) {
+  data->red = (int *)malloc(data->num_pixel * sizeof(int));
+  data->green = (int *)malloc(data->num_pixel * sizeof(int));
+  data->blue = (int *)malloc(data->num_pixel * sizeof(int));
+
+  data->y = (int *)malloc(data->num_pixel * sizeof(int));
+  data->cb = (int *)malloc(data->num_pixel * sizeof(int));
+  data->cr = (int *)malloc(data->num_pixel * sizeof(int));
+
+  data->cb_sub = (int *)malloc(data->num_pixel / 4 * sizeof(int));
+  data->cr_sub = (int *)malloc(data->num_pixel / 4 * sizeof(int));
+
+  data->dct_y = (double *)malloc(data->num_pixel * sizeof(double));
+  data->dct_cb = (double *)malloc(data->num_pixel / 4 * sizeof(double));
+  data->dct_cr = (double *)malloc(data->num_pixel / 4 * sizeof(double));
+
+  data->dct_y_quant = (int *)malloc(data->num_pixel * sizeof(int));
+  data->dct_cb_quant = (int *)malloc(data->num_pixel / 4 * sizeof(int));
+  data->dct_cr_quant = (int *)malloc(data->num_pixel / 4 * sizeof(int));
+
+  if (data->red == NULL || data->green == NULL || data->blue == NULL ||
+      data->y == NULL || data->cb == NULL || data->cr == NULL ||
+      data->cb_sub == NULL || data->cr_sub == NULL || data->dct_y == NULL ||
+      data->dct_cb == NULL || data->dct_cr == NULL ||
+      data->dct_y_quant == NULL || data->dct_cb_quant == NULL ||
+      data->dct_cr_quant == NULL) {
+    fprintf(stderr, "Could not allocate enough memory for image processing\n");
+    return -1;
+  }
+  return 0;
+}
+
+// ====================================================================================================================
+
+/*
  * converts the rgb data to ycbcr data
  */
 int rgb_to_ycbcr(jpeg_data *data) {
@@ -60,14 +85,9 @@ int rgb_to_ycbcr(jpeg_data *data) {
                   0.5 * data->blue[i];
     data->cr[i] = 128 + 0.5 * data->red[i] - 0.418688 * data->green[i] -
                   0.081312 * data->blue[i];
-    // assert( 0<=data->y[i] && data->y[i]<=255);
-    // assert( 0<=data->cb[i] && data->cb[i]<=255 );
-    // assert( 0<=data->cr[i] && data->cr[i]<=255 );
-    data->rgb[i] = CLIP(data->red[i], 0, 255);
-    data->rgb[i] <<= 8;
-    data->rgb[i] |= CLIP(data->green[i], 0, 255);
-    data->rgb[i] <<= 8;
-    data->rgb[i] |= CLIP(data->blue[i], 0, 255);
+    assert(0 <= data->y[i] && data->y[i] <= 255);
+    assert(0 <= data->cb[i] && data->cb[i] <= 255);
+    assert(0 <= data->cr[i] && data->cr[i] <= 255);
   }
 
   return 0;
@@ -78,7 +98,7 @@ int read_yuyv(jpeg_data *data, unsigned char *yuyv, unsigned int width,
   data->width = width;
   data->height = height;
   data->num_pixel = width * height;
-  // alloc_jpeg_data(data);
+  alloc_jpeg_data(data);
   int i;
   int j;
   int k;
@@ -118,7 +138,7 @@ int read_ycbcr(jpeg_data *data, unsigned char *ycbcr, unsigned int width,
   data->width = width;
   data->height = height;
   data->num_pixel = width * height;
-  // alloc_jpeg_data(data);
+  alloc_jpeg_data(data);
   int i;
   int j;
   for (i = 0; i < width * height; i++) {
@@ -157,15 +177,16 @@ void subsample_chroma(jpeg_data *data) {
     }
 }
 
+// ====================================================================================================================
+
 /*
- * the discrete cosine transform per 8x8 block - outputs floating point values
- * optimized by using lookup tables and splitting the terms
- */
-/*
- * the discrete cosine transform per 8x8 block - outputs floating point values
- * optimized by using lookup tables and splitting the terms
+ * builds a lookup table to speed up the discrete cosine transform
  */
 
+/*
+ * the discrete cosine transform per 8x8 block - outputs floating point values
+ * optimized by using lookup tables and splitting the terms
+ */
 
 void dct_block(int gap, int in[], double out[]) {
 
@@ -271,41 +292,9 @@ void dct_block(int gap, int in[], double out[]) {
   }
 }
 
-
 /*
  * perform the discrete cosine transform
  */
-void *dct_mutiphread(void *args) {
-  dct_muti *dct = (dct_muti *)args;
-  int h, v, blocks_vert, blocks_horiz;
-  if (dct->name == "y") {
-    blocks_vert = (dct->data->height) / 8;
-    blocks_horiz = (dct->data->width) / 8;
-    for (v = 0; v < blocks_vert; v++)
-      for (h = 0; h < blocks_horiz; h++)
-        dct_block(8 * blocks_horiz,
-                  dct->data->y + v * blocks_horiz * 64 + h * 8,
-                  dct->data->dct_y + (v * blocks_horiz + h) * 64);
-
-  } else if (dct->name == "cb") {
-    blocks_vert = (dct->data->height) / 16;
-    blocks_horiz = (dct->data->width) / 16;
-    for (v = 0; v < blocks_vert; v++)
-      for (h = 0; h < blocks_horiz; h++)
-        dct_block(8 * blocks_horiz,
-                  dct->data->cb + v * blocks_horiz * 64 + h * 8,
-                  dct->data->dct_cb + (v * blocks_horiz + h) * 64);
-
-  } else if (dct->name == "cr") {
-    blocks_vert = (dct->data->height) / 16;
-    blocks_horiz = (dct->data->width) / 16;
-    for (v = 0; v < blocks_vert; v++)
-      for (h = 0; h < blocks_horiz; h++)
-        dct_block(8 * blocks_horiz,
-                  dct->data->cr + v * blocks_horiz * 64 + h * 8,
-                  dct->data->dct_cr + (v * blocks_horiz + h) * 64);
-  }
-}
 void dct(int blocks_horiz, int blocks_vert, int in[], double out[]) {
   int h, v;
   for (v = 0; v < blocks_vert; v++)
@@ -320,7 +309,7 @@ void dct(int blocks_horiz, int blocks_vert, int in[], double out[]) {
  * Luma quantization matrix
  * taken from CCITT Rec. T.81
  */
-int luma_quantizer2[] = {
+int luma_quantizer[] = {
     16, 11, 10, 16, 24,  40,  51,  61,  12, 12, 14, 19, 26,  58,  60,  55,
     14, 13, 16, 24, 40,  57,  69,  56,  14, 17, 22, 29, 51,  87,  80,  62,
     18, 22, 37, 56, 68,  109, 103, 77,  24, 35, 55, 64, 81,  104, 113, 92,
@@ -329,11 +318,6 @@ int luma_quantizer2[] = {
 /*
  * Chroma quantization matrix
  */
-int chroma_quantizer2[] = {17, 18, 24, 47, 99, 99, 99, 99, 18, 21, 26, 66, 99,
-                           99, 99, 99, 24, 26, 56, 99, 99, 99, 99, 99, 47, 66,
-                           99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-                           99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-                           99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99};
 
 void set_quality(int quantizer[], int quality) {
   int i;
@@ -357,10 +341,16 @@ void quantize(int num_pixel, double in[], int out[], int quantizer[]) {
 
 /*
  * Reorder elements in zig-zag
- * new[i] = old[scan_order2[i]]
+ * new[i] = old[scan_order[i]]
  */
+int scan_order[] = {0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18,
+                    11, 4,  5,  12, 19, 26, 33, 40, 48, 41, 34, 27, 20,
+                    13, 6,  7,  14, 21, 28, 35, 42, 49, 56, 57, 50, 43,
+                    36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
+                    38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+
 /*
- * Reorders the dct coefficients in zig-zag order using the scan_order2 matrix
+ * Reorders the dct coefficients in zig-zag order using the scan_order matrix
  */
 void zigzag(int num_pixel, int dct[]) {
   int i, j;
@@ -369,7 +359,7 @@ void zigzag(int num_pixel, int dct[]) {
     for (j = 0; j < 64; j++)
       tmp[j] = dct[i + j];
     for (j = 0; j < 64; j++)
-      dct[i + j] = tmp[scan_order2[j]];
+      dct[i + j] = tmp[scan_order[j]];
   }
 }
 
@@ -509,29 +499,6 @@ void init_huff_table(huff_code *hc) {
       si++;
     } while (hc->sym_code_len[hc->sym_sorted[k]] != si);
   }
-
-  int len;
-  for (i = 1; i <= 16; i++) {
-    if (hc->code_len_freq[i] != 0) {
-      len = i;
-      break;
-    }
-  }
-
-  int lcode;
-  for (i = 0; i < 256; i++) {
-    if (hc->sym_code_len[i] == len) {
-      lcode = hc->sym_code[i];
-      break;
-    }
-  }
-
-  for (i = 0; i < 256; i++) {
-    if (hc->sym_code[i] == -1) {
-      hc->sym_code[i] = lcode;
-      hc->sym_code_len[i] = len;
-    }
-  }
 }
 
 /*
@@ -633,6 +600,7 @@ void init_huffman(jpeg_data *data) {
   calc_dc_freq(data->num_pixel / 4, data->dct_cr_quant, chroma_dc->sym_freq);
   calc_ac_freq(data->num_pixel / 4, data->dct_cb_quant, chroma_ac->sym_freq);
   calc_ac_freq(data->num_pixel / 4, data->dct_cr_quant, chroma_ac->sym_freq);
+
   timer();
   printf("Initializing the luma DC Huffman tables  ");
   init_huff_table(luma_dc);
@@ -841,7 +809,7 @@ void write_file(const char *file_name, jpeg_data *data) {
   fputc(0, f);  // quant-table id
   int i;
   for (i = 0; i < 64; i++)
-    fputc(luma_quantizer2[scan_order2[i]], f);
+    fputc(luma_quantizer[scan_order[i]], f);
 
   fputc(0xFF, f);
   fputc(0xDB, f); // DQT Symbol
@@ -849,7 +817,7 @@ void write_file(const char *file_name, jpeg_data *data) {
   fputc(67, f); // len
   fputc(1, f);  // quant-table id
   for (i = 0; i < 64; i++)
-    fputc(chroma_quantizer2[scan_order2[i]], f);
+    fputc(chroma_quantizer[scan_order[i]], f);
 
   write_dht_header(f, data->luma_dc.code_len_freq, data->luma_dc.sym_sorted,
                    0x00);
@@ -936,11 +904,11 @@ void write_file(const char *file_name, jpeg_data *data) {
  * (binary format)
  */
 // int run(int argc, char** args)
-
-int encode(unsigned char *ycbcr, jpeg_data *data, unsigned int width,
-           unsigned int height, unsigned int quality) {
-  set_quality(luma_quantizer2, quality);
-  set_quality(chroma_quantizer2, quality);
+int encode(unsigned char *ycbcr, unsigned int width, unsigned int height,
+           unsigned int quality) {
+  jpeg_data data;
+  set_quality(luma_quantizer, quality);
+  set_quality(chroma_quantizer, quality);
 
   // timer();
   // printf("Converting RGB to YCbCr                  ");
@@ -949,89 +917,58 @@ int encode(unsigned char *ycbcr, jpeg_data *data, unsigned int width,
   // return -1;
   // printf("%10.3f ms\n", timer());
 
-  printf("*********************Encoding**********************\n");
   timer();
   printf("ReadYCbCr                                ");
   fflush(stdout);
-  read_yuyv(data, ycbcr, width, height);
+  read_yuyv(&data, ycbcr, width, height);
   printf("%10.3f ms\n", timer());
-  /*****************对ycbcr进行增强****************/
 
-  image_enhanced(data);
-  rgb_to_ycbcr(data);
-
-  /*************************************************/
   timer();
   printf("Subsampling chroma values                ");
   fflush(stdout);
-  subsample_chroma(data);
+  subsample_chroma(&data);
   printf("%10.3f ms\n", timer());
 
   timer();
   printf("Performing the discrete cosine transform ");
   fflush(stdout);
-
-  /*****************多线程计算********************/
-   pthread_t th1, th2, th3;
-   dct_muti muti_y, muti_cb, muti_cr;
-  //参数初始化
-/*
-   muti_y.data = data;
-   muti_y.name = "y";
-   muti_cb.data = data;
-   muti_cb.name = "cb";
-   muti_cr.data = data;
-   muti_cr.name = "cr";
-  //线程创建
-   pthread_create(&th1, NULL, dct_mutiphread, &muti_y);
-   pthread_create(&th2, NULL, dct_mutiphread, &muti_cb);
-   pthread_create(&th3, NULL, dct_mutiphread, &muti_cr);
-  //等待线程结束
-   pthread_join(th1, NULL);
-   pthread_join(th2, NULL);
-   pthread_join(th3, NULL);
-*/
-
-  /***********************************************/
-  /*****************原处理进程********************/
-  dct(data->width / 8, data->height / 8, data->y, data->dct_y);
-  dct(data->width / 16, data->height / 16, data->cb_sub, data->dct_cb);
-  dct(data->width / 16, data->height / 16, data->cr_sub, data->dct_cr);
-  /***********************************************/
+  dct(data.width / 8, data.height / 8, data.y, data.dct_y);
+  dct(data.width / 16, data.height / 16, data.cb_sub, data.dct_cb);
+  dct(data.width / 16, data.height / 16, data.cr_sub, data.dct_cr);
   printf("%10.3f ms\n", timer());
 
   timer();
   printf("Quantizing coefficients                  ");
   fflush(stdout);
-  quantize(data->num_pixel, data->dct_y, data->dct_y_quant, luma_quantizer2);
-  quantize(data->num_pixel / 4, data->dct_cb, data->dct_cb_quant,
-           chroma_quantizer2);
-  quantize(data->num_pixel / 4, data->dct_cr, data->dct_cr_quant,
-           chroma_quantizer2);
+  quantize(data.num_pixel, data.dct_y, data.dct_y_quant, luma_quantizer);
+  quantize(data.num_pixel / 4, data.dct_cb, data.dct_cb_quant,
+           chroma_quantizer);
+  quantize(data.num_pixel / 4, data.dct_cr, data.dct_cr_quant,
+           chroma_quantizer);
   printf("%10.3f ms\n", timer());
 
   timer();
   printf("Reordering coefficients (zig-zag)        ");
   fflush(stdout);
-  zigzag(data->num_pixel, data->dct_y_quant);
-  zigzag(data->num_pixel / 4, data->dct_cb_quant);
-  zigzag(data->num_pixel / 4, data->dct_cr_quant);
+  zigzag(data.num_pixel, data.dct_y_quant);
+  zigzag(data.num_pixel / 4, data.dct_cb_quant);
+  zigzag(data.num_pixel / 4, data.dct_cr_quant);
   printf("%10.3f ms\n", timer());
 
   timer();
   printf("Calculating the DC differences           ");
   fflush(stdout);
-  diff_dc(data->num_pixel, data->dct_y_quant);
-  diff_dc(data->num_pixel / 4, data->dct_cb_quant);
-  diff_dc(data->num_pixel / 4, data->dct_cr_quant);
+  diff_dc(data.num_pixel, data.dct_y_quant);
+  diff_dc(data.num_pixel / 4, data.dct_cb_quant);
+  diff_dc(data.num_pixel / 4, data.dct_cr_quant);
   printf("%10.3f ms\n", timer());
 
-  init_huffman(data);
+  init_huffman(&data);
 
   timer();
   printf("Writing the bitstream                    ");
   fflush(stdout);
-  write_file("out.jpg", data);
+  write_file("out.jpg", &data);
   printf("%10.3f ms\n", timer());
 
   return 0;

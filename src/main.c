@@ -24,12 +24,12 @@ int main(void) {
   initlcd();
   fd = initcamera(device, p, size, format, width, height);
   int i = 1;
-  while (i) {
+  while (1) {
     getimage(fd, &readbuffer);
     encode(p[0], &jpg, width, height, quality);
     getfinish(fd, &readbuffer);
     show(jpg.rgb, width, jpg.height);
-    i--;
+     //i--;
   }
   closecamera(fd);
 

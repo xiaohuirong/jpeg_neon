@@ -187,7 +187,7 @@ int get_dc(FILE *f, huff_code *huff_dc, unsigned char *buffer, int *left) {
   if (flag == 1) {
     return val;
   } else {
-    return -(pow(2, bit_num) - 1 - val);
+    return -((1<<bit_num) - 1 - val);
   }
 }
 
@@ -224,7 +224,7 @@ int get_ac(FILE *f, huff_code *huff_ac, unsigned char *buffer, int *left,
     val_ac[i] = val;
     pixel_num++;
   } else {
-    val_ac[i] = -(pow(2, bit_num) - 1 - val);
+    val_ac[i] = -((1<<bit_num) - 1 - val);
     pixel_num++;
   }
 
