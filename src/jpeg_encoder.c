@@ -873,6 +873,7 @@ int encode(unsigned char *ycbcr, jpeg_data *data, unsigned int width,
   // return -1;
   // printf("%10.3f ms\n", timer());
 
+  printf("**********************Encoding**********************\n");
   timer();
   printf("ReadYCbCr                                ");
   fflush(stdout);
@@ -896,31 +897,29 @@ int encode(unsigned char *ycbcr, jpeg_data *data, unsigned int width,
 
   /*****************多线程计算********************/
 
-  pthread_t th1, th2, th3;
-  dct_muti muti_y, muti_cb, muti_cr;
+   pthread_t th1, th2, th3;
+   dct_muti muti_y, muti_cb, muti_cr;
   //参数初始化
-  muti_y.data = data;
-  muti_y.name = "y";
-  muti_cb.data = data;
-  muti_cb.name = "cb";
-  muti_cr.data = data;
-  muti_cr.name = "cr";
+   muti_y.data = data;
+   muti_y.name = "y";
+   muti_cb.data = data;
+   muti_cb.name = "cb";
+   muti_cr.data = data;
+   muti_cr.name = "cr";
   //线程创建
-  pthread_create(&th1, NULL, dct_mutiphread, &muti_y);
-  pthread_create(&th2, NULL, dct_mutiphread, &muti_cb);
-  pthread_create(&th3, NULL, dct_mutiphread, &muti_cr);
+   pthread_create(&th1, NULL, dct_mutiphread, &muti_y);
+   pthread_create(&th2, NULL, dct_mutiphread, &muti_cb);
+   pthread_create(&th3, NULL, dct_mutiphread, &muti_cr);
   //等待线程结束
-  pthread_join(th1, NULL);
-  pthread_join(th2, NULL);
-  pthread_join(th3, NULL);
+   pthread_join(th1, NULL);
+   pthread_join(th2, NULL);
+   pthread_join(th3, NULL);
 
   /***********************************************/
   /*****************原处理进程********************/
-  /*
-  dct(data.width/8, data.height/8, data.y, data.dct_y);
-  dct(data.width/16, data.height/16, data.cb_sub, data.dct_cb);
-  dct(data.width/16, data.height/16, data.cr_sub, data.dct_cr);
-  */
+  //dct(data->width / 8, data->height / 8, data->y, data->dct_y);
+  //dct(data->width / 16, data->height / 16, data->cb_sub, data->dct_cb);
+  //dct(data->width / 16, data->height / 16, data->cr_sub, data->dct_cr);
   /***********************************************/
   printf("%10.3f ms\n", timer());
 

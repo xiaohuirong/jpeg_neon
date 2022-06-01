@@ -13,7 +13,7 @@ void show_pixel(int x, int y, int color) {
   int green;
   int blue;
   /* 定位到LCD屏上的位置 */
-  show8 = fb_mem + y * fix.line_length + x * var.bits_per_pixel / 8;
+  show8 = fb_mem + y * fix.line_length + (x + 500) * var.bits_per_pixel / 8;
   show16 = (unsigned short *)show8;
   show32 = (unsigned long *)show8;
   switch (var.bits_per_pixel) {
@@ -63,15 +63,6 @@ int initlcd(void) {
 
   /*3. 映射LCD地址*/
   fb_mem = mmap(NULL, fix.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fb, 0);
-
-  // memset(fb_mem, 0x0, fix.smem_len);
-
-  // int i, j;
-  // for (i = 0; i < 100; i++) {
-  // for (j = 0; j < var.xres; j++) {
-  // show_pixel(j, i, 0xFF3333);
-  //}
-  //}
 
   return 0;
 }
