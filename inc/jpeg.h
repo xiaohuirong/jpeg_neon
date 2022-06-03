@@ -65,6 +65,21 @@ typedef struct {
   int thread_num;
 } thread_args;
 
+typedef struct {
+    unsigned char file[100000000];
+    unsigned char *pt;
+    unsigned int count;
+} memfile;
+
+typedef struct {
+  jpeg_data *jpg;
+  memfile *mf1;
+  memfile *mf2;
+  memfile *mf3;
+  memfile *mf4;
+} write_thread_args;
+
+
 int decode(jpeg_data *jpg);
 int encode(unsigned char *ycbcr, jpeg_data *jpg, unsigned int width,
            unsigned int height, unsigned int quality);

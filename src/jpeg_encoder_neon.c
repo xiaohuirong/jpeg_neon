@@ -19,6 +19,14 @@
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define CLIP(n, min, max) MIN((MAX((n), (min))), (max))
 
+
+
+void myfputc(unsigned char val, memfile *f){
+    *(f->pt) = val;
+    (f->pt)++;
+    (f->count)++;
+}
+
 float cos_lookup2[8][8] = {
     {1.0000, 0.9808, 0.9239, 0.8315, 0.7071, 0.5556, 0.3827, 0.1951},
     {1.0000, 0.8315, 0.3827, -0.1951, -0.7071, -0.9808, -0.9239, -0.5556},
@@ -685,9 +693,9 @@ void init_huffman(jpeg_data *data) {
 
 // ====================================================================================================================
 
-unsigned char byte_buffer;
-int bits_written;
-void write_byte(FILE *f, int code_word, int start, int end) {
+unsigned char byte_buffer[4];
+int bits_written[4];
+void write_byte(memfile *f, int code_word, int start, int end, int index) {
   if (start == end)
     return;
 
@@ -695,20 +703,20 @@ void write_byte(FILE *f, int code_word, int start, int end) {
   {
     code_word <<= end;
     code_word &= (1 << start) - 1;
-    byte_buffer |= code_word;
-    bits_written += start - end;
+    byte_buffer[index] |= code_word;
+    bits_written[index] += start - end;
   } else // we have to split & write to the disk
   {
     int part2 = code_word & ((1 << (-end)) - 1);
     code_word >>= (-end);
     code_word &= (1 << start) - 1;
-    byte_buffer |= code_word;
-    fputc(byte_buffer, f);
-    if (byte_buffer == 0xFF)
-      fputc(0, f); // stuffing bit
-    bits_written = 0;
-    byte_buffer = 0;
-    write_byte(f, part2, 8, 8 + end);
+    byte_buffer[index] |= code_word;
+    myfputc(byte_buffer[index], f);
+    if (byte_buffer[index] == 0xFF)
+      myfputc(0, f); // stuffing bit
+    bits_written[index] = 0;
+    byte_buffer[index] = 0;
+    write_byte(f, part2, 8, 8 + end, index);
     return;
   }
 }
@@ -717,66 +725,66 @@ void write_byte(FILE *f, int code_word, int start, int end) {
  * write code_len bits to the file (using a buffer inbetween) starting with the
  * MSB (leftmost one) example: write_bits(14, 6) writes the bits '001110'
  */
-void write_bits(FILE *f, int code_word, int code_len) {
+void write_bits(memfile *f, int code_word, int code_len, int index) {
   if (code_len == 0)
     return;
-  write_byte(f, code_word, 8 - bits_written, 8 - bits_written - code_len);
+  write_byte(f, code_word, 8 - bits_written[index], 8 - bits_written[index] - code_len, index);
 }
 
 /*
  * extend the bitstream to 8-bit precision - fill missing bits with '1'
  */
-void fill_last_byte(FILE *f) {
-  byte_buffer |= (1 << (8 - bits_written)) - 1;
-  fputc(byte_buffer, f);
-  byte_buffer = 0;
-  bits_written = 0;
+void fill_last_byte(memfile *f, int index) {
+  byte_buffer[index] |= (1 << (8 - bits_written[index])) - 1;
+  myfputc(byte_buffer[index], f);
+  byte_buffer[index] = 0;
+  bits_written[index] = 0;
 }
 
 /*
  * write the bit representation of this DC coefficient
  */
-void encode_dc_value(FILE *f, int dc_val, huff_code *huff) {
+void encode_dc_value(memfile *f, int dc_val, huff_code *huff, int index) {
   int cla = huff_class(dc_val);
   int class_code = huff->sym_code[cla];
   int class_size = huff->sym_code_len[cla];
-  write_bits(f, class_code, class_size);
+  write_bits(f, class_code, class_size, index);
 
   unsigned int id = abs(dc_val);
   if (dc_val < 0)
     id = ~id;
-  write_bits(f, id, cla);
+  write_bits(f, id, cla, index);
 }
 
 /*
  * write the bit representation of this AC coefficient, which has num_zeros
  * preceeding zeros
  */
-void encode_ac_value(FILE *f, int ac_val, int num_zeros, huff_code *huff) {
+void encode_ac_value(memfile *f, int ac_val, int num_zeros, huff_code *huff, int index) {
 
   int cla = huff_class(ac_val);
   int v = ((num_zeros << 4) & 0xF0) | (cla & 0x0F);
   int code = huff->sym_code[v];
   int size = huff->sym_code_len[v];
-  write_bits(f, code, size);
+  write_bits(f, code, size, index);
 
   unsigned int id = abs(ac_val);
   if (ac_val < 0)
     id = ~id;
-  write_bits(f, id, cla);
+  write_bits(f, id, cla, index);
 }
 
 /*
  * write the DC and AC coefficients of one color channel
  */
-void write_coefficients(FILE *f, int num_pixel, int dct_quant[],
-                        huff_code *huff_dc, huff_code *huff_ac) {
+void write_coefficients(memfile *f, int num_pixel, int dct_quant[],
+                        huff_code *huff_dc, huff_code *huff_ac, int index) {
   int num_zeros = 0;
   int last_nonzero;
   int i;
   for (i = 0; i < num_pixel; i++) {
     if (i % 64 == 0) {
-      encode_dc_value(f, dct_quant[i], huff_dc);
+      encode_dc_value(f, dct_quant[i], huff_dc, index);
       for (last_nonzero = i + 63; last_nonzero > i; last_nonzero--)
         if (dct_quant[last_nonzero] != 0)
           break;
@@ -785,7 +793,7 @@ void write_coefficients(FILE *f, int num_pixel, int dct_quant[],
 
     if (i == last_nonzero + 1) {
       write_bits(f, huff_ac->sym_code[0x00],
-                 huff_ac->sym_code_len[0x00]); // EOB symbol
+                 huff_ac->sym_code_len[0x00], index); // EOB symbol
       // jump to the next block
       i = (i / 64 + 1) * 64 - 1;
       continue;
@@ -795,13 +803,13 @@ void write_coefficients(FILE *f, int num_pixel, int dct_quant[],
       num_zeros++;
       if (num_zeros == 16) {
         write_bits(f, huff_ac->sym_code[0xF0],
-                   huff_ac->sym_code_len[0xF0]); // ZRL symbol
+                   huff_ac->sym_code_len[0xF0], index); // ZRL symbol
         num_zeros = 0;
       }
       continue;
     }
 
-    encode_ac_value(f, dct_quant[i], num_zeros, huff_ac);
+    encode_ac_value(f, dct_quant[i], num_zeros, huff_ac, index);
     num_zeros = 0;
   }
 }
@@ -812,27 +820,26 @@ void write_coefficients(FILE *f, int num_pixel, int dct_quant[],
  * write the information from which decoders can reconstruct the huffman table
  * used
  */
-void write_dht_header(FILE *f, int code_len_freq[], int sym_sorted[],
+void write_dht_header(memfile *f, int code_len_freq[], int sym_sorted[],
                       int tc_th) {
   int length = 19;
   int i;
   for (i = 1; i <= 16; i++)
     length += code_len_freq[i];
 
-  fputc(0xFF, f);
-  fputc(0xC4, f); // DHT Symbol
+  myfputc(0xFF, f);
+  myfputc(0xC4, f); // DHT Symbol
 
-  fputc((length >> 8) & 0xFF, f);
-  fputc(length & 0xFF, f); // len
+  myfputc((length >> 8) & 0xFF, f);
+  myfputc(length & 0xFF, f); // len
 
-  fputc(tc_th, f); // table class (0=DC, 1=AC) and table id (0=luma, 1=chroma)
+  myfputc(tc_th, f); // table class (0=DC, 1=AC) and table id (0=luma, 1=chroma)
 
   for (i = 1; i <= 16; i++)
-    fputc(code_len_freq[i], f); // number of codes of length i
+    myfputc(code_len_freq[i], f); // number of codes of length i
 
   for (i = 0; length > 19; i++, length--)
-    fputc(sym_sorted[i],
-          f); // huffval, needed to reconstruct the huffman code at the receiver
+    myfputc(sym_sorted[i], f); // huffval, needed to reconstruct the huffman code at the receiver
 }
 
 /*
@@ -841,124 +848,340 @@ void write_dht_header(FILE *f, int code_len_freq[], int sym_sorted[],
  * - quantization tables
  * - huffman tables
  */
-void write_file(const char *file_name, jpeg_data *data) {
-  FILE *f = fopen(file_name, "w");
 
-  fputc(0xFF, f);
-  fputc(0xD8, f); // SOI Symbol
+//pthread_mutex_t lock;   //定义一个锁
 
-  fputc(0xFF, f);
-  fputc(0xE0, f); // APP0 Tag
-  fputc(0, f);
-  fputc(16, f); // len
-  fputc(0x4A, f);
-  fputc(0x46, f);
-  fputc(0x49, f);
-  fputc(0x46, f);
-  fputc(0x00, f); // JFIF ID
-  fputc(0x01, f);
-  fputc(0x01, f); // JFIF Version
-  fputc(0x00, f); // units
-  fputc(0x00, f);
-  fputc(0x48, f); // X density
-  fputc(0x00, f);
-  fputc(0x48, f); // Y density
-  fputc(0x00, f); // x thumbnail
-  fputc(0x00, f); // y thumbnail
+void* write_thread1(void *args){
+  write_thread_args *write_args  = (write_thread_args *)args;
+  memfile *f1 = write_args->mf1;
+  jpeg_data *data = write_args->jpg;
 
-  fputc(0xFF, f);
-  fputc(0xDB, f); // DQT Symbol
-  fputc(0, f);
-  fputc(67, f); // len
-  fputc(0, f);  // quant-table id
+  myfputc(0xFF, f1);
+  myfputc(0xD8, f1); // SOI Symbol
+
+  myfputc(0xFF, f1);
+  myfputc(0xE0, f1); // APP0 Tag
+  myfputc(0, f1);
+  myfputc(16, f1); // len
+  myfputc(0x4A, f1);
+  myfputc(0x46, f1);
+  myfputc(0x49, f1);
+  myfputc(0x46, f1);
+  myfputc(0x00, f1); // JFIF ID
+  myfputc(0x01, f1);
+  myfputc(0x01, f1); // JFIF Version
+  myfputc(0x00, f1); // units
+  myfputc(0x00, f1); myfputc(0x48, f1); // X density
+  myfputc(0x00, f1);
+  myfputc(0x48, f1); // Y density
+  myfputc(0x00, f1); // x thumbnail
+  myfputc(0x00, f1); // y thumbnail
+
+  myfputc(0xFF, f1);
+  myfputc(0xDB, f1); // DQT Symbol
+  myfputc(0, f1);
+  myfputc(67, f1); // len
+  myfputc(0, f1);  // quant-table id
   int i;
   for (i = 0; i < 64; i++)
-    fputc(luma_quantizer2[scan_order2[i]], f);
+    myfputc(luma_quantizer2[scan_order2[i]], f1);
 
-  fputc(0xFF, f);
-  fputc(0xDB, f); // DQT Symbol
-  fputc(0, f);
-  fputc(67, f); // len
-  fputc(1, f);  // quant-table id
+  myfputc(0xFF, f1);
+  myfputc(0xDB, f1); // DQT Symbol
+  myfputc(0, f1);
+  myfputc(67, f1); // len
+  myfputc(1, f1);  // quant-table id
   for (i = 0; i < 64; i++)
-    fputc(chroma_quantizer2[scan_order2[i]], f);
+    myfputc(chroma_quantizer2[scan_order2[i]], f1);
 
-  write_dht_header(f, data->luma_dc.code_len_freq, data->luma_dc.sym_sorted,
+  write_dht_header(f1, data->luma_dc.code_len_freq, data->luma_dc.sym_sorted,
                    0x00);
-  write_dht_header(f, data->luma_ac.code_len_freq, data->luma_ac.sym_sorted,
+  write_dht_header(f1, data->luma_ac.code_len_freq, data->luma_ac.sym_sorted,
                    0x10);
-  write_dht_header(f, data->chroma_dc.code_len_freq, data->chroma_dc.sym_sorted,
+  write_dht_header(f1, data->chroma_dc.code_len_freq, data->chroma_dc.sym_sorted,
                    0x01);
-  write_dht_header(f, data->chroma_ac.code_len_freq, data->chroma_ac.sym_sorted,
+  write_dht_header(f1, data->chroma_ac.code_len_freq, data->chroma_ac.sym_sorted,
                    0x11);
 
-  fputc(0xFF, f);
-  fputc(0xC0, f); // SOF0 Symbol (Baseline DCT)
-  fputc(0, f);
-  fputc(17, f);   // len
-  fputc(0x08, f); // data precision - 8bit
-  fputc(((data->height) >> 8) & 0xFF, f);
-  fputc((data->height) & 0xFF, f); // picture height
-  fputc(((data->width) >> 8) & 0xFF, f);
-  fputc((data->width) & 0xFF, f); // picture width
-  fputc(0x03, f);                 // num components - 3 for y, cb and cr
-  //		fputc(0x01, f); // num components - 3 for y, cb and cr
-  fputc(1, f);    // #1 id
-  fputc(0x22, f); // sampling factor (bit0-3=vertical, bit4-7=horiz)
-  fputc(0, f);    // quantization table index
-  fputc(2, f);    // #2 id
-  fputc(0x11, f); // sampling factor (bit0-3=vertical, bit4-7=horiz)
-  fputc(1, f);    // quantization table index
-  fputc(3, f);    // #3 id
-  fputc(0x11, f); // sampling factor (bit0-3=vertical, bit4-7=horiz)
-  fputc(1, f);    // quantization table index
+  myfputc(0xFF, f1);
+  myfputc(0xC0, f1); // SOF0 Symbol (Baseline DCT)
+  myfputc(0, f1);
+  myfputc(17, f1);   // len
+  myfputc(0x08, f1); // data precision - 8bit
+  myfputc(((data->height) >> 8) & 0xFF, f1);
+  myfputc((data->height) & 0xFF, f1); // picture height
+  myfputc(((data->width) >> 8) & 0xFF, f1);
+  myfputc((data->width) & 0xFF, f1); // picture width
+  myfputc(0x03, f1);                 // num components - 3 for y, cb and cr
+  //		myfputc(0x01); // num components - 3 for y, cb and cr
+  myfputc(1, f1);    // #1 id
+  myfputc(0x22, f1); // sampling factor (bit0-3=vertical, bit4-7=horiz)
+  myfputc(0, f1);    // quantization table index
+  myfputc(2, f1);    // #2 id
+  myfputc(0x11, f1); // sampling factor (bit0-3=vertical, bit4-7=horiz)
+  myfputc(1, f1);    // quantization table index
+  myfputc(3, f1);    // #3 id
+  myfputc(0x11, f1); // sampling factor (bit0-3=vertical, bit4-7=horiz)
+  myfputc(1, f1);    // quantization table index
 
-  fputc(0xFF, f);
-  fputc(0xDA, f); // SOS Symbol
-  fputc(0, f);
-  fputc(8, f);    // len
-  fputc(1, f);    // number of components
-  fputc(1, f);    // id of component
-  fputc(0x00, f); // table index, bit0-3=AC-table, bit4-7=DC-table
-  fputc(0x00, f); // start of spectral or predictor selection - not used
-  fputc(0x3F, f); // end of spectral selection - default value
-  fputc(0x00, f); // successive approximation bits - default value
-  write_coefficients(f, data->num_pixel, data->dct_y_quant, &data->luma_dc,
-                     &data->luma_ac);
-  fill_last_byte(f);
+  //printf("thread1 finish\n");
 
-  fputc(0xFF, f);
-  fputc(0xDA, f); // SOS Symbol
-  fputc(0, f);
-  fputc(8, f);    // len
-  fputc(1, f);    // number of components
-  fputc(2, f);    // id of component
-  fputc(0x11, f); // table index, bit0-3=AC-table, bit4-7=DC-table
-  fputc(0x00, f); // start of spectral or predictor selection - not used
-  fputc(0x3F, f); // end of spectral selection - default value
-  fputc(0x00, f); // successive approximation bits - default value
-  write_coefficients(f, data->num_pixel / 4, data->dct_cb_quant,
-                     &data->chroma_dc, &data->chroma_ac);
-  fill_last_byte(f);
+}
 
-  fputc(0xFF, f);
-  fputc(0xDA, f); // SOS Symbol
-  fputc(0, f);
-  fputc(8, f);    // len
-  fputc(1, f);    // number of components
-  fputc(3, f);    // id of component
-  fputc(0x11, f); // table index, bit0-3=AC-table, bit4-7=DC-table
-  fputc(0x00, f); // start of spectral or predictor selection - not used
-  fputc(0x3F, f); // end of spectral selection - default value
-  fputc(0x00, f); // successive approximation bits - default value
-  write_coefficients(f, data->num_pixel / 4, data->dct_cr_quant,
-                     &data->chroma_dc, &data->chroma_ac);
-  fill_last_byte(f);
+void* write_thread2(void *args){
+  write_thread_args *write_args  = (write_thread_args *)args;
+  memfile *f2 = write_args->mf2;
+  jpeg_data *data = write_args->jpg;
 
-  fputc(0xFF, f);
-  fputc(0xD9, f); // EOI Symbol
+  myfputc(0xFF, f2);
+  myfputc(0xDA, f2); // SOS Symbol
+  myfputc(0, f2);
+  myfputc(8, f2);    // len
+  myfputc(1, f2);    // number of components
+  myfputc(1, f2);    // id of component
+  myfputc(0x00, f2); // table index, bit0-3=AC-table, bit4-7=DC-table
+  myfputc(0x00, f2); // start of spectral or predictor selection - not used
+  myfputc(0x3F, f2); // end of spectral selection - default value
+  myfputc(0x00, f2); // successive approximation bits - default value
+  
+  write_coefficients(f2, data->num_pixel, data->dct_y_quant, &data->luma_dc,
+                     &data->luma_ac, 2);
 
-  fclose(f);
+  fill_last_byte(f2, 2);
+
+  //printf("thread2 finish\n");
+}
+
+
+void* write_thread3(void *args){
+  write_thread_args *write_args  = (write_thread_args *)args;
+  memfile *f3 = write_args->mf3;
+  jpeg_data *data = write_args->jpg;
+  myfputc(0xFF, f3);
+  myfputc(0xDA, f3); // SOS Symbol
+  myfputc(0, f3);
+  myfputc(8, f3);    // len
+  myfputc(1, f3);    // number of components
+  myfputc(2, f3);    // id of component
+  myfputc(0x11, f3); // table index, bit0-3=AC-table, bit4-7=DC-table
+  myfputc(0x00, f3); // start of spectral or predictor selection - not used
+  myfputc(0x3F, f3); // end of spectral selection - default value
+  myfputc(0x00, f3); // successive approximation bits - default value
+  write_coefficients(f3, data->num_pixel / 4, data->dct_cb_quant,
+                     &data->chroma_dc, &data->chroma_ac, 3);
+  fill_last_byte(f3, 3);
+
+  //printf("thread3 finish\n");
+
+}
+
+
+void* write_thread4(void *args){
+  write_thread_args *write_args  = (write_thread_args *)args;
+  memfile *f4 = write_args->mf4;
+  jpeg_data *data = write_args->jpg;
+  myfputc(0xFF, f4);
+  myfputc(0xDA, f4); // SOS Symbol
+  myfputc(0, f4);
+  myfputc(8, f4);    // len
+  myfputc(1, f4);    // number of components
+  myfputc(3, f4);    // id of component
+  myfputc(0x11, f4); // table index, bit0-3=AC-table, bit4-7=DC-table
+  myfputc(0x00, f4); // start of spectral or predictor selection - not used
+  myfputc(0x3F, f4); // end of spectral selection - default value
+  myfputc(0x00, f4); // successive approximation bits - default value
+  write_coefficients(f4, data->num_pixel / 4, data->dct_cr_quant,
+                     &data->chroma_dc, &data->chroma_ac, 4);
+  fill_last_byte(f4, 4);
+
+  myfputc(0xFF, f4);
+  myfputc(0xD9, f4); // EOI Symbol
+
+  //printf("thread4 finish\n");
+
+
+}
+
+void write_file_multi(const char *file_name, jpeg_data *data){
+  memfile* f1 = (memfile *)malloc(sizeof(memfile));
+  f1->pt = f1->file;
+  memfile* f2 = (memfile *)malloc(sizeof(memfile));
+  f2->pt = f2->file;
+  memfile* f3 = (memfile *)malloc(sizeof(memfile));
+  f3->pt = f3->file;
+  memfile* f4 = (memfile *)malloc(sizeof(memfile));
+  f4->pt = f4->file;
+
+  write_thread_args w_args;
+  w_args.jpg = data;
+  w_args.mf1 = f1;
+  w_args.mf2 = f2;
+  w_args.mf3 = f3;
+  w_args.mf4 = f4;
+
+  pthread_t th1;
+  pthread_t th2;
+  pthread_t th3;
+  pthread_t th4;
+  
+  pthread_create(&th1, NULL, write_thread1, &w_args);
+  pthread_create(&th2, NULL, write_thread2, &w_args);
+  pthread_create(&th3, NULL, write_thread3, &w_args);
+  pthread_create(&th4, NULL, write_thread4, &w_args);
+
+  pthread_join(th1, NULL);
+  pthread_join(th2, NULL);
+  pthread_join(th3, NULL);
+  pthread_join(th4, NULL);
+
+
+  FILE *jpgfile = fopen(file_name, "w");
+  fwrite(f1->file, sizeof(unsigned char), f1->count, jpgfile);
+
+  fwrite(f2->file, sizeof(unsigned char), f2->count, jpgfile);
+
+  fwrite(f3->file, sizeof(unsigned char), f3->count, jpgfile);
+
+  fwrite(f4->file, sizeof(unsigned char), f4->count, jpgfile);
+  fclose(jpgfile);
+
+
+}
+
+void write_file(const char *file_name, jpeg_data *data) {
+  //unsigned char *f = file;
+  memfile* f1 = (memfile *)malloc(sizeof(memfile));
+  f1->pt = f1->file;
+  memfile* f2 = (memfile *)malloc(sizeof(memfile));
+  f2->pt = f2->file;
+  memfile* f3 = (memfile *)malloc(sizeof(memfile));
+  f3->pt = f3->file;
+  memfile* f4 = (memfile *)malloc(sizeof(memfile));
+  f4->pt = f4->file;
+
+  myfputc(0xFF, f1);
+  myfputc(0xD8, f1); // SOI Symbol
+
+  myfputc(0xFF, f1);
+  myfputc(0xE0, f1); // APP0 Tag
+  myfputc(0, f1);
+  myfputc(16, f1); // len
+  myfputc(0x4A, f1);
+  myfputc(0x46, f1);
+  myfputc(0x49, f1);
+  myfputc(0x46, f1);
+  myfputc(0x00, f1); // JFIF ID
+  myfputc(0x01, f1);
+  myfputc(0x01, f1); // JFIF Version
+  myfputc(0x00, f1); // units
+  myfputc(0x00, f1); myfputc(0x48, f1); // X density
+  myfputc(0x00, f1);
+  myfputc(0x48, f1); // Y density
+  myfputc(0x00, f1); // x thumbnail
+  myfputc(0x00, f1); // y thumbnail
+
+  myfputc(0xFF, f1);
+  myfputc(0xDB, f1); // DQT Symbol
+  myfputc(0, f1);
+  myfputc(67, f1); // len
+  myfputc(0, f1);  // quant-table id
+  int i;
+  for (i = 0; i < 64; i++)
+    myfputc(luma_quantizer2[scan_order2[i]], f1);
+
+  myfputc(0xFF, f1);
+  myfputc(0xDB, f1); // DQT Symbol
+  myfputc(0, f1);
+  myfputc(67, f1); // len
+  myfputc(1, f1);  // quant-table id
+  for (i = 0; i < 64; i++)
+    myfputc(chroma_quantizer2[scan_order2[i]], f1);
+
+  write_dht_header(f1, data->luma_dc.code_len_freq, data->luma_dc.sym_sorted,
+                   0x00);
+  write_dht_header(f1, data->luma_ac.code_len_freq, data->luma_ac.sym_sorted,
+                   0x10);
+  write_dht_header(f1, data->chroma_dc.code_len_freq, data->chroma_dc.sym_sorted,
+                   0x01);
+  write_dht_header(f1, data->chroma_ac.code_len_freq, data->chroma_ac.sym_sorted,
+                   0x11);
+
+  myfputc(0xFF, f1);
+  myfputc(0xC0, f1); // SOF0 Symbol (Baseline DCT)
+  myfputc(0, f1);
+  myfputc(17, f1);   // len
+  myfputc(0x08, f1); // data precision - 8bit
+  myfputc(((data->height) >> 8) & 0xFF, f1);
+  myfputc((data->height) & 0xFF, f1); // picture height
+  myfputc(((data->width) >> 8) & 0xFF, f1);
+  myfputc((data->width) & 0xFF, f1); // picture width
+  myfputc(0x03, f1);                 // num components - 3 for y, cb and cr
+  //		myfputc(0x01); // num components - 3 for y, cb and cr
+  myfputc(1, f1);    // #1 id
+  myfputc(0x22, f1); // sampling factor (bit0-3=vertical, bit4-7=horiz)
+  myfputc(0, f1);    // quantization table index
+  myfputc(2, f1);    // #2 id
+  myfputc(0x11, f1); // sampling factor (bit0-3=vertical, bit4-7=horiz)
+  myfputc(1, f1);    // quantization table index
+  myfputc(3, f1);    // #3 id
+  myfputc(0x11, f1); // sampling factor (bit0-3=vertical, bit4-7=horiz)
+  myfputc(1, f1);    // quantization table index
+
+  myfputc(0xFF, f2);
+  myfputc(0xDA, f2); // SOS Symbol
+  myfputc(0, f2);
+  myfputc(8, f2);    // len
+  myfputc(1, f2);    // number of components
+  myfputc(1, f2);    // id of component
+  myfputc(0x00, f2); // table index, bit0-3=AC-table, bit4-7=DC-table
+  myfputc(0x00, f2); // start of spectral or predictor selection - not used
+  myfputc(0x3F, f2); // end of spectral selection - default value
+  myfputc(0x00, f2); // successive approximation bits - default value
+  write_coefficients(f2, data->num_pixel, data->dct_y_quant, &data->luma_dc,
+                     &data->luma_ac, 0);
+  fill_last_byte(f2, 0);
+
+  myfputc(0xFF, f3);
+  myfputc(0xDA, f3); // SOS Symbol
+  myfputc(0, f3);
+  myfputc(8, f3);    // len
+  myfputc(1, f3);    // number of components
+  myfputc(2, f3);    // id of component
+  myfputc(0x11, f3); // table index, bit0-3=AC-table, bit4-7=DC-table
+  myfputc(0x00, f3); // start of spectral or predictor selection - not used
+  myfputc(0x3F, f3); // end of spectral selection - default value
+  myfputc(0x00, f3); // successive approximation bits - default value
+  write_coefficients(f3, data->num_pixel / 4, data->dct_cb_quant,
+                     &data->chroma_dc, &data->chroma_ac, 0);
+  fill_last_byte(f3, 0);
+
+  myfputc(0xFF, f4);
+  myfputc(0xDA, f4); // SOS Symbol
+  myfputc(0, f4);
+  myfputc(8, f4);    // len
+  myfputc(1, f4);    // number of components
+  myfputc(3, f4);    // id of component
+  myfputc(0x11, f4); // table index, bit0-3=AC-table, bit4-7=DC-table
+  myfputc(0x00, f4); // start of spectral or predictor selection - not used
+  myfputc(0x3F, f4); // end of spectral selection - default value
+  myfputc(0x00, f4); // successive approximation bits - default value
+  write_coefficients(f4, data->num_pixel / 4, data->dct_cr_quant,
+                     &data->chroma_dc, &data->chroma_ac, 0);
+  fill_last_byte(f4, 0);
+
+  myfputc(0xFF, f4);
+  myfputc(0xD9, f4); // EOI Symbol
+
+  
+  FILE *jpgfile = fopen(file_name, "w");
+  fwrite(f1->file, sizeof(unsigned char), f1->count, jpgfile);
+
+  fwrite(f2->file, sizeof(unsigned char), f2->count, jpgfile);
+
+  fwrite(f3->file, sizeof(unsigned char), f3->count, jpgfile);
+
+  fwrite(f4->file, sizeof(unsigned char), f4->count, jpgfile);
+  fclose(jpgfile);
 }
 
 // ====================================================================================================================
@@ -1048,8 +1271,9 @@ int encode(unsigned char *ycbcr, jpeg_data *data, unsigned int width,
   timer();
   printf("Writing the bitstream                    ");
   fflush(stdout);
-  write_file("out.jpg", data);
+  write_file_multi("out.jpg", data);
   printf("%10.3f ms\n", timer());
+
 
   return 0;
 }
