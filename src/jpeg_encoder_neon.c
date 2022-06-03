@@ -10,8 +10,9 @@
  */
 
 #include "jpeg.h"
+#include "image_enhanced.h"
 #include <arm_neon.h>
-extern int image_enhanced(jpeg_data *data);
+//extern int image_enhanced(jpeg_data *data);
 // ====================================================================================================================
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -78,7 +79,6 @@ int read_yuyv(jpeg_data *data, unsigned char *yuyv, unsigned int width,
   data->width = width;
   data->height = height;
   data->num_pixel = width * height;
-  // alloc_jpeg_data(data);
   int i;
   int j;
   int k;
@@ -118,7 +118,6 @@ int read_ycbcr(jpeg_data *data, unsigned char *ycbcr, unsigned int width,
   data->width = width;
   data->height = height;
   data->num_pixel = width * height;
-  // alloc_jpeg_data(data);
   int i;
   int j;
   for (i = 0; i < width * height; i++) {
@@ -264,7 +263,6 @@ void dct_block(int gap, int in[], double out[]) {
     }
   }
 
-  // freq *= M_SQRT1_2;
   for (i = 0; i < 8; i++) {
     out[i] *= M_SQRT1_2;
     out[i * 8] *= M_SQRT1_2;
@@ -275,37 +273,9 @@ void dct_block(int gap, int in[], double out[]) {
 /*
  * perform the discrete cosine transform
  */
-void *dct_mutiphread(void *args) {
-  dct_muti *dct = (dct_muti *)args;
-  int h, v, blocks_vert, blocks_horiz;
-  if (dct->name == "y") {
-    blocks_vert = (dct->data->height) / 8;
-    blocks_horiz = (dct->data->width) / 8;
-    for (v = 0; v < blocks_vert; v++)
-      for (h = 0; h < blocks_horiz; h++)
-        dct_block(8 * blocks_horiz,
-                  dct->data->y + v * blocks_horiz * 64 + h * 8,
-                  dct->data->dct_y + (v * blocks_horiz + h) * 64);
+/*
+*/
 
-  } else if (dct->name == "cb") {
-    blocks_vert = (dct->data->height) / 16;
-    blocks_horiz = (dct->data->width) / 16;
-    for (v = 0; v < blocks_vert; v++)
-      for (h = 0; h < blocks_horiz; h++)
-        dct_block(8 * blocks_horiz,
-                  dct->data->cb + v * blocks_horiz * 64 + h * 8,
-                  dct->data->dct_cb + (v * blocks_horiz + h) * 64);
-
-  } else if (dct->name == "cr") {
-    blocks_vert = (dct->data->height) / 16;
-    blocks_horiz = (dct->data->width) / 16;
-    for (v = 0; v < blocks_vert; v++)
-      for (h = 0; h < blocks_horiz; h++)
-        dct_block(8 * blocks_horiz,
-                  dct->data->cr + v * blocks_horiz * 64 + h * 8,
-                  dct->data->dct_cr + (v * blocks_horiz + h) * 64);
-  }
-}
 void dct(int blocks_horiz, int blocks_vert, int in[], double out[]) {
   int h, v;
   for (v = 0; v < blocks_vert; v++)
@@ -313,6 +283,68 @@ void dct(int blocks_horiz, int blocks_vert, int in[], double out[]) {
       dct_block(8 * blocks_horiz, in + v * blocks_horiz * 64 + h * 8,
                 out + (v * blocks_horiz + h) * 64);
 }
+
+void *dct_thread(void *args){
+    thread_args* data = (thread_args *)args;
+    int blocks_horiz = data->blocks_horiz;
+    int blocks_vert = data->blocks_vert;
+    int thread_num = data->thread_num;
+    int* in = data->in;
+    double* out = data->out;
+    int h,v;
+    for (v = blocks_vert/4*thread_num; v < blocks_vert/4*(thread_num+1); v++)
+        for (h = 0; h < blocks_horiz; h++)
+            dct_block(8 * blocks_horiz, in + v * blocks_horiz * 64 + h * 8,
+                out + (v * blocks_horiz + h) * 64);
+}
+
+void dct_multi(int blocks_horiz, int blocks_vert, int in[], double out[]){
+   pthread_t th1;
+   pthread_t th2;
+   pthread_t th3;
+   pthread_t th4;
+   
+   thread_args data1;
+   thread_args data2;
+   thread_args data3;
+   thread_args data4;
+
+   data1.in = in;
+   data1.out = out;
+   data1.blocks_vert = blocks_vert;
+   data1.blocks_horiz = blocks_horiz;
+   data1.thread_num = 0;
+
+   data2.in = in;
+   data2.out = out;
+   data2.blocks_vert = blocks_vert;
+   data2.blocks_horiz = blocks_horiz;
+   data2.thread_num = 1;
+   
+   data3.in = in;
+   data3.out = out;
+   data3.blocks_vert = blocks_vert;
+   data3.blocks_horiz = blocks_horiz;
+   data3.thread_num = 2;
+   
+   data4.in = in;
+   data4.out = out;
+   data4.blocks_vert = blocks_vert;
+   data4.blocks_horiz = blocks_horiz;
+   data4.thread_num = 3;
+
+   pthread_create(&th1, NULL, dct_thread, &data1);
+   pthread_create(&th2, NULL, dct_thread, &data2);
+   pthread_create(&th3, NULL, dct_thread, &data3);
+   pthread_create(&th4, NULL, dct_thread, &data4);
+
+   pthread_join(th1, NULL);
+   pthread_join(th2, NULL);
+   pthread_join(th3, NULL);
+   pthread_join(th4, NULL);
+   
+}
+
 
 // ====================================================================================================================
 
@@ -972,29 +1004,16 @@ int encode(unsigned char *ycbcr, jpeg_data *data, unsigned int width,
   fflush(stdout);
 
   /*****************多线程计算********************/
-   pthread_t th1, th2, th3;
-   dct_muti muti_y, muti_cb, muti_cr;
-  //参数初始化
-   muti_y.data = data;
-   muti_y.name = "y";
-   muti_cb.data = data;
-   muti_cb.name = "cb";
-   muti_cr.data = data;
-   muti_cr.name = "cr";
-  //线程创建
-   pthread_create(&th1, NULL, dct_mutiphread, &muti_y);
-   pthread_create(&th2, NULL, dct_mutiphread, &muti_cb);
-   pthread_create(&th3, NULL, dct_mutiphread, &muti_cr);
-  //等待线程结束
-   pthread_join(th1, NULL);
-   pthread_join(th2, NULL);
-   pthread_join(th3, NULL);
 
-  /***********************************************/
+  dct_multi(data->width / 8, data->height / 8, data->y, data->dct_y);
+  dct_multi(data->width / 16, data->height / 16, data->cb_sub, data->dct_cb);
+  dct_multi(data->width / 16, data->height / 16, data->cr_sub, data->dct_cr);
+
   /*****************原处理进程********************/
   //dct(data->width / 8, data->height / 8, data->y, data->dct_y);
   //dct(data->width / 16, data->height / 16, data->cb_sub, data->dct_cb);
   //dct(data->width / 16, data->height / 16, data->cr_sub, data->dct_cr);
+
   /***********************************************/
   printf("%10.3f ms\n", timer());
 

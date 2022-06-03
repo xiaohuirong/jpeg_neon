@@ -10,7 +10,8 @@
  */
 
 #include "jpeg.h"
-extern int image_enhanced(jpeg_data *data);
+#include "image_enhanced.h"
+//extern int image_enhanced(jpeg_data *data);
 // ====================================================================================================================
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -881,8 +882,8 @@ int encode(unsigned char *ycbcr, jpeg_data *data, unsigned int width,
   printf("%10.3f ms\n", timer());
   /*****************对ycbcr进行增强****************/
 
-  image_enhanced(data);
-  rgb_to_ycbcr(data);
+  //image_enhanced(data);
+  //rgb_to_ycbcr(data);
 
   /*************************************************/
   timer();

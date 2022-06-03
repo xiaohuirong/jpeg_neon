@@ -1,4 +1,3 @@
-//#include "jpeg_encoder_neon.h"
 #include "getimage.h"
 #include "jpeg.h"
 #include "show.h"
@@ -24,12 +23,12 @@ int main(void) {
   initlcd();
   fd = initcamera(device, p, size, format, width, height);
   int i = 1;
-  while (1) {
+  while (i) {
     getimage(fd, &readbuffer);
     encode(p[0], &jpg, width, height, quality);
     getfinish(fd, &readbuffer);
     show(jpg.rgb, width, jpg.height);
-     //i--;
+    i--;
   }
   closecamera(fd);
 

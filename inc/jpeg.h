@@ -58,9 +58,12 @@ typedef struct __jpeg_data {
 } jpeg_data;
 
 typedef struct {
-  jpeg_data *data;
-  char *name;
-} dct_muti;
+  int *in;
+  double *out;
+  int blocks_horiz;
+  int blocks_vert;
+  int thread_num;
+} thread_args;
 
 int decode(jpeg_data *jpg);
 int encode(unsigned char *ycbcr, jpeg_data *jpg, unsigned int width,
@@ -68,7 +71,5 @@ int encode(unsigned char *ycbcr, jpeg_data *jpg, unsigned int width,
 int rgb_to_ycbcr(jpeg_data *data);
 int alloc_jpeg_data(jpeg_data *data);
 double timer();
-
-// int alloc_jpeg_data(jpeg_data *data);
 
 #endif
